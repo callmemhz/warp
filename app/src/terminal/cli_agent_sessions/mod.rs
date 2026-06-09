@@ -46,6 +46,43 @@ pub struct CLIAgentSessionContext {
     pub response: Option<String>,
 }
 
+/// What a terminal pane persists so it can re-launch the CLI agent that was
+/// running in it when Warp exited. Captured via
+/// [`CLIAgentSessionsModel::resume_descriptor`], persisted on the pane
+/// snapshot, and replayed on restore. Claude-only for now; the shape is
+/// agent-agnostic so other agents can join later.
+///
+/// See `docs/superpowers/specs/2026-06-09-claude-session-restore-design.md`.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AgentResume {
+    /// The Claude session id captured at runtime (from the plugin's OSC 777
+    /// `SessionStart`). `None` if no id was seen; resume falls back to
+    /// `--continue` (the most recent conversation in `cwd`).
+    pub session_id: Option<String>,
+    /// The directory the agent was running in (the git worktree path when
+    /// applicable). The restored pane resumes here so the right conversation
+    /// is found. `None` if the plugin never reported it.
+    #[serde(default)]
+    pub cwd: Option<String>,
+}
+
+impl AgentResume {
+    /// The shell command that re-attaches to the conversation. Mirrors
+    /// code-cave's `build_claude`: prefer `--resume <id>` when an id was
+    /// captured, else `--continue` (most recent conversation in the resumed
+    /// cwd). Always passes `--dangerously-skip-permissions` so the resumed
+    /// agent doesn't block on a permission prompt in the restored pane.
+    ///
+    /// Claude-only today; when another agent becomes resumable, branch here on
+    /// the descriptor's agent.
+    pub fn resume_command(&self) -> String {
+        match self.session_id.as_deref() {
+            Some(id) => format!("claude --resume {id} --dangerously-skip-permissions"),
+            None => "claude --continue --dangerously-skip-permissions".to_string(),
+        }
+    }
+}
+
 /// State of the rich input editor for composing a prompt to send to a CLI agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CLIAgentInputState {
@@ -322,6 +359,29 @@ impl CLIAgentSessionsModel {
 
     pub fn session(&self, terminal_view_id: EntityId) -> Option<&CLIAgentSession> {
         self.sessions.get(&terminal_view_id)
+    }
+
+    /// Builds the descriptor needed to re-launch the CLI agent running in this
+    /// pane after a Warp restart, or `None` if there's nothing resumable.
+    ///
+    /// This is the single place that decides *what* about a CLI agent session
+    /// survives a restart. Today only local Claude sessions are resumable
+    /// (`claude --resume`/`--continue` re-attach to a conversation by id or
+    /// cwd); remote (SSH) sessions are skipped because the resume command runs
+    /// in the restored local shell. Other agents return `None` until they grow
+    /// their own resume semantics in [`AgentResume::resume_command`].
+    pub fn resume_descriptor(&self, terminal_view_id: EntityId) -> Option<AgentResume> {
+        let session = self.session(terminal_view_id)?;
+        if !matches!(session.agent, CLIAgent::Claude) || session.is_remote() {
+            return None;
+        }
+        Some(AgentResume {
+            session_id: session.session_context.session_id.clone(),
+            // The directory the agent actually ran in. For a git worktree this
+            // is the worktree path, not the repo root — resuming there is what
+            // makes `--resume`/`--continue` find the right conversation.
+            cwd: session.session_context.cwd.clone(),
+        })
     }
 
     /// Returns `true` if the rich input editor is currently open for this terminal.

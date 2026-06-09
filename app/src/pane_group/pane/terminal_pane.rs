@@ -34,7 +34,7 @@ use crate::ai::blocklist::{BlocklistAIHistoryModel, StartAgentRequest};
 use crate::ai::conversation_utils;
 use crate::ai::llms::LLMPreferences;
 use crate::ai::skills::SkillManager;
-use crate::app_state::{AgentResume, AmbientAgentPaneSnapshot, LeafContents, TerminalPaneSnapshot};
+use crate::app_state::{AmbientAgentPaneSnapshot, LeafContents, TerminalPaneSnapshot};
 use crate::code::buffer_location::LocalOrRemotePath;
 use crate::pane_group::child_agent::{
     create_error_child_agent_conversation, ErrorChildAgentConversationRequest,
@@ -57,7 +57,7 @@ use crate::terminal::shared_session::SharedSessionSource;
 use crate::terminal::shared_session::{join_link, SharedSessionStatus};
 use crate::terminal::view::ambient_agent::should_disable_snapshot;
 use crate::terminal::view::Event;
-use crate::terminal::{CLIAgent, TerminalManager, TerminalView};
+use crate::terminal::{TerminalManager, TerminalView};
 use crate::view_components::ToastFlavor;
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::{PaneViewLocator, WorkspaceRegistry};
@@ -578,16 +578,12 @@ impl PaneContent for TerminalPane {
                         .active_conversation_id()
                 });
 
-            // If a Claude session is running in this pane, record what's needed
-            // to re-launch it on restore (instead of leaving a bare shell).
-            // Only local Claude sessions are resumable: `claude --resume` runs
-            // in the restored local cwd, so remote (SSH) sessions are skipped.
-            let agent_resume = CLIAgentSessionsModel::as_ref(app)
-                .session(self.terminal_view(app).id())
-                .filter(|session| matches!(session.agent, CLIAgent::Claude) && !session.is_remote())
-                .map(|session| AgentResume {
-                    session_id: session.session_context.session_id.clone(),
-                });
+            // If a resumable CLI agent (Claude) is running in this pane, record
+            // what's needed to re-launch it on restore instead of leaving a
+            // bare shell. The CLI agent subsystem owns the decision of what's
+            // resumable and what to capture.
+            let agent_resume =
+                CLIAgentSessionsModel::as_ref(app).resume_descriptor(self.terminal_view(app).id());
 
             LeafContents::Terminal(TerminalPaneSnapshot {
                 uuid: self.uuid.clone(),

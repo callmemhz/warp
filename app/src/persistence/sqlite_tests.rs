@@ -316,6 +316,7 @@ fn test_sqlite_round_trips_agent_resume() {
         if let LeafContents::Terminal(term) = &mut leaf.contents {
             term.agent_resume = Some(AgentResume {
                 session_id: Some("1234abcd-12ab-34cd-56ef-1234567890ab".to_string()),
+                cwd: Some("/tmp/worktree".to_string()),
             });
         } else {
             panic!("expected a terminal leaf");
@@ -344,6 +345,7 @@ fn test_sqlite_round_trips_agent_resume() {
         term.agent_resume,
         Some(AgentResume {
             session_id: Some("1234abcd-12ab-34cd-56ef-1234567890ab".to_string()),
+            cwd: Some("/tmp/worktree".to_string()),
         }),
     );
 }

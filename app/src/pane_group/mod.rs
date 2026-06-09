@@ -237,19 +237,6 @@ fn get_minimum_pane_size(app: &AppContext) -> f32 {
     }
 }
 
-/// Builds the shell command that re-launches a Claude session when a pane is
-/// restored on startup. Mirrors code-cave's `build_claude`: prefer
-/// `--resume <id>` when a session id was captured at runtime, otherwise fall
-/// back to `--continue` (the most recent conversation in the restored cwd).
-/// Always passes `--dangerously-skip-permissions` so the resumed agent runs
-/// without blocking on a permission prompt in the restored pane.
-fn build_claude_resume_command(session_id: Option<&str>) -> String {
-    match session_id {
-        Some(id) => format!("claude --resume {id} --dangerously-skip-permissions"),
-        None => "claude --continue --dangerously-skip-permissions".to_string(),
-    }
-}
-
 /// Resolves a tab config `shell` value (e.g. `"pwsh"` or
 /// `"/opt/homebrew/bin/pwsh"`) into an [`AvailableShell`], using the fallback
 /// order expected by tab configs:
@@ -1604,10 +1591,22 @@ impl PaneGroup {
                         }
                     });
 
-                let startup_directory = terminal_snapshot
+                // When resuming a CLI agent, prefer the directory the agent
+                // actually ran in (the git worktree path when applicable) so
+                // `claude --resume`/`--continue` finds the right conversation.
+                // Fall back to the pane's saved shell cwd.
+                let pane_cwd = terminal_snapshot
                     .cwd
+                    .as_ref()
                     .map(PathBuf::from)
                     .filter(|path| path.is_dir());
+                let agent_cwd = terminal_snapshot
+                    .agent_resume
+                    .as_ref()
+                    .and_then(|resume| resume.cwd.as_ref())
+                    .map(PathBuf::from)
+                    .filter(|path| path.is_dir());
+                let startup_directory = agent_cwd.or(pane_cwd);
 
                 // Filter conversation IDs to only include those that have task messages
                 // and are not entirely passive (ignored suggestions).
@@ -1648,16 +1647,16 @@ impl PaneGroup {
                             },
                         )
                 };
-                // If a Claude session was running in this pane, re-launch it once
-                // the restored shell is up — instead of leaving a bare shell.
-                // Only do this when the saved cwd still exists
+                // If a CLI agent was running in this pane, re-launch it once the
+                // restored shell is up — instead of leaving a bare shell. Only
+                // do this when we have a directory to resume in
                 // (`startup_directory` is `Some`), so we never resume in the
-                // wrong directory.
-                let claude_resume_command = terminal_snapshot
+                // wrong place.
+                let agent_resume_command = terminal_snapshot
                     .agent_resume
                     .as_ref()
                     .filter(|_| startup_directory.is_some())
-                    .map(|resume| build_claude_resume_command(resume.session_id.as_deref()));
+                    .map(|resume| resume.resume_command());
 
                 let (terminal_view, terminal_manager) = PaneGroup::create_session(
                     startup_directory,
@@ -1677,7 +1676,7 @@ impl PaneGroup {
 
                 let terminal_view_id = terminal_view.id();
 
-                if let Some(command) = claude_resume_command {
+                if let Some(command) = agent_resume_command {
                     terminal_view.update(ctx, |terminal, ctx| {
                         terminal.set_pending_command_queue(vec![command], ctx);
                     });

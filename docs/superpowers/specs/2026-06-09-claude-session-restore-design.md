@@ -143,14 +143,33 @@ but the implementation should still treat it defensively.)
   auto-executes the expected command. Wire into the manual runner / nextest suite per
   the `warp-integration-test` skill.
 
+## Architecture revision (post-review)
+
+After first implementation, two changes were made:
+
+1. **Centralized in the CLI agent subsystem.** Claude-specific knowledge no longer
+   lives in `pane_group`/`terminal_pane`. `AgentResume`, its `resume_command()`
+   builder, and `CLIAgentSessionsModel::resume_descriptor(view_id)` (which decides
+   what's resumable and captures it) all live in
+   `app/src/terminal/cli_agent_sessions/mod.rs`. The snapshot path calls
+   `resume_descriptor(...)`; the restore path calls `resume_command()`. Neither
+   `pane_group` nor `terminal_pane` contains any Claude command strings — the seam
+   is an opaque descriptor + a command string, ready for other agents to join via
+   `resume_command`.
+
+2. **Worktree handling via the agent's own cwd.** The original assumption — "the
+   pane's restored cwd covers worktrees" — was wrong: a pane's shell cwd and the
+   directory Claude actually ran in can diverge (git worktrees). `AgentResume` now
+   carries `cwd` (from `session_context.cwd`, the plugin-reported working dir). On
+   restore, the pane is launched in the agent's cwd when present (falling back to
+   the pane's saved cwd), so `--resume`/`--continue` resolves the right
+   conversation in the worktree.
+
 ## Out of scope (YAGNI)
 
-- Other CLI agents (codex, gemini, …) — the capture path is generic, but we ship
-  Claude only first.
+- Other CLI agents (codex, gemini, …) — `resume_descriptor`/`resume_command` are
+  the extension seam, but we ship Claude only first.
 - Feature flag / setting toggle — always-on.
-- Worktree `-w` handling — vanilla `claude` keys sessions by directory and Warp
-  already restores each pane's cwd, so a session that ran in a worktree directory
-  resumes there naturally. code-cave's `-w` logic was specific to its own wrapper.
 - Pre-fill (type-but-don't-run) mode.
 
 ## Reference
