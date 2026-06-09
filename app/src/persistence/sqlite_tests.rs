@@ -16,8 +16,8 @@ use super::{
     save_codebase_index_metadata, setup_database, start_writer,
 };
 use crate::app_state::{
-    AppState, CodePaneSnapShot, CodePaneTabSnapshot, LeafContents, LeafSnapshot, PaneNodeSnapshot,
-    TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
+    AgentResume, AppState, CodePaneSnapShot, CodePaneTabSnapshot, LeafContents, LeafSnapshot,
+    PaneNodeSnapshot, TabGroupSnapshot, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
 };
 use crate::cloud_object::{CloudObjectPermissions, Owner};
 use crate::code::editor_management::CodeSource;
@@ -276,6 +276,7 @@ fn test_terminal_window_snapshot(vertical_tabs_panel_open: bool) -> WindowSnapsh
                     active_profile_id: None,
                     conversation_ids_to_restore: vec![],
                     active_conversation_id: None,
+                    agent_resume: None,
                 }),
             }),
             default_directory_color: None,
@@ -299,6 +300,54 @@ fn test_terminal_window_snapshot(vertical_tabs_panel_open: bool) -> WindowSnapsh
         agent_management_filters: None,
         tab_groups: vec![],
     }
+}
+
+/// A terminal pane that was running a Claude session persists its
+/// `agent_resume` info and reads it back unchanged, so the pane can re-launch
+/// the conversation on restore.
+#[test]
+fn test_sqlite_round_trips_agent_resume() {
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let database_path = tempdir.path().join("warp.sqlite");
+    let mut conn = setup_database(&database_path).expect("database should initialize");
+
+    let mut window = test_terminal_window_snapshot(false);
+    if let PaneNodeSnapshot::Leaf(leaf) = &mut window.tabs[0].root {
+        if let LeafContents::Terminal(term) = &mut leaf.contents {
+            term.agent_resume = Some(AgentResume {
+                session_id: Some("1234abcd-12ab-34cd-56ef-1234567890ab".to_string()),
+                cwd: Some("/tmp/worktree".to_string()),
+            });
+        } else {
+            panic!("expected a terminal leaf");
+        }
+    } else {
+        panic!("expected a leaf node");
+    }
+
+    let app_state = AppState {
+        windows: vec![window],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Default::default(),
+    };
+    save_app_state(&mut conn, &app_state).expect("app state should save");
+
+    let restored = read_sqlite_data(&mut conn, None).expect("persisted data should load");
+    let tab = &restored.app_state.windows[0].tabs[0];
+    let PaneNodeSnapshot::Leaf(leaf) = &tab.root else {
+        panic!("expected a leaf node");
+    };
+    let LeafContents::Terminal(term) = &leaf.contents else {
+        panic!("expected a terminal leaf");
+    };
+    assert_eq!(
+        term.agent_resume,
+        Some(AgentResume {
+            session_id: Some("1234abcd-12ab-34cd-56ef-1234567890ab".to_string()),
+            cwd: Some("/tmp/worktree".to_string()),
+        }),
+    );
 }
 
 #[test]
@@ -361,6 +410,7 @@ fn test_sqlite_round_trips_custom_vertical_tabs_title() {
                         active_profile_id: None,
                         conversation_ids_to_restore: vec![],
                         active_conversation_id: None,
+                        agent_resume: None,
                     }),
                 }),
                 default_directory_color: None,
@@ -521,6 +571,7 @@ fn test_sqlite_round_trips_tab_groups() {
                 active_profile_id: None,
                 conversation_ids_to_restore: vec![],
                 active_conversation_id: None,
+                agent_resume: None,
             }),
         }),
         default_directory_color: None,
@@ -548,6 +599,7 @@ fn test_sqlite_round_trips_tab_groups() {
                 active_profile_id: None,
                 conversation_ids_to_restore: vec![],
                 active_conversation_id: None,
+                agent_resume: None,
             }),
         }),
         default_directory_color: None,

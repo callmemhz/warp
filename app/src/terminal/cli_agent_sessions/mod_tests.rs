@@ -655,3 +655,27 @@ fn permission_request_still_populates_summary_and_tool_fields() {
         CLIAgentSessionStatus::Blocked { .. },
     ));
 }
+
+#[test]
+fn resume_command_prefers_resume_with_id() {
+    let resume = super::AgentResume {
+        session_id: Some("1234abcd-12ab-34cd-56ef-1234567890ab".to_string()),
+        cwd: Some("/tmp/worktree".to_string()),
+    };
+    assert_eq!(
+        resume.resume_command(),
+        "claude --resume 1234abcd-12ab-34cd-56ef-1234567890ab --dangerously-skip-permissions",
+    );
+}
+
+#[test]
+fn resume_command_falls_back_to_continue_without_id() {
+    let resume = super::AgentResume {
+        session_id: None,
+        cwd: None,
+    };
+    assert_eq!(
+        resume.resume_command(),
+        "claude --continue --dangerously-skip-permissions",
+    );
+}

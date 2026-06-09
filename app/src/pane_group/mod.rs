@@ -1591,10 +1591,22 @@ impl PaneGroup {
                         }
                     });
 
-                let startup_directory = terminal_snapshot
+                // When resuming a CLI agent, prefer the directory the agent
+                // actually ran in (the git worktree path when applicable) so
+                // `claude --resume`/`--continue` finds the right conversation.
+                // Fall back to the pane's saved shell cwd.
+                let pane_cwd = terminal_snapshot
                     .cwd
+                    .as_ref()
                     .map(PathBuf::from)
                     .filter(|path| path.is_dir());
+                let agent_cwd = terminal_snapshot
+                    .agent_resume
+                    .as_ref()
+                    .and_then(|resume| resume.cwd.as_ref())
+                    .map(PathBuf::from)
+                    .filter(|path| path.is_dir());
+                let startup_directory = agent_cwd.or(pane_cwd);
 
                 // Filter conversation IDs to only include those that have task messages
                 // and are not entirely passive (ignored suggestions).
@@ -1635,6 +1647,23 @@ impl PaneGroup {
                             },
                         )
                 };
+                // If a CLI agent was running in this pane, re-launch it once the
+                // restored shell is up — instead of leaving a bare shell. Only
+                // do this when we have a directory to resume in
+                // (`startup_directory` is `Some`), so we never resume in the
+                // wrong place.
+                let agent_resume_command = terminal_snapshot
+                    .agent_resume
+                    .as_ref()
+                    .filter(|_| startup_directory.is_some())
+                    .map(|resume| resume.resume_command());
+
+                if let Some(command) = &agent_resume_command {
+                    log::info!(
+                        "Restoring CLI agent session: running `{command}` in {startup_directory:?}"
+                    );
+                }
+
                 let (terminal_view, terminal_manager) = PaneGroup::create_session(
                     startup_directory,
                     HashMap::new(),
@@ -1652,6 +1681,12 @@ impl PaneGroup {
                 );
 
                 let terminal_view_id = terminal_view.id();
+
+                if let Some(command) = agent_resume_command {
+                    terminal_view.update(ctx, |terminal, ctx| {
+                        terminal.set_pending_command_queue(vec![command], ctx);
+                    });
+                }
 
                 let pane_data = TerminalPane::new(
                     uuid.0,
@@ -2142,6 +2177,7 @@ impl PaneGroup {
                             active_profile_id: None,
                             conversation_ids_to_restore: Vec::new(),
                             active_conversation_id: None,
+                            agent_resume: None,
                         })
                     }
                 };

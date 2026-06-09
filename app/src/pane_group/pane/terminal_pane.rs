@@ -516,6 +516,7 @@ impl PaneContent for TerminalPane {
                 active_profile_id: None,
                 conversation_ids_to_restore: vec![],
                 active_conversation_id: None,
+                agent_resume: None,
             })
         } else if let Some(task_id) = view
             .ambient_agent_view_model()
@@ -546,6 +547,7 @@ impl PaneContent for TerminalPane {
                     active_profile_id: None,
                     conversation_ids_to_restore: vec![],
                     active_conversation_id: None,
+                    agent_resume: None,
                 })
             }
         } else {
@@ -576,6 +578,13 @@ impl PaneContent for TerminalPane {
                         .active_conversation_id()
                 });
 
+            // If a resumable CLI agent (Claude) is running in this pane, record
+            // what's needed to re-launch it on restore instead of leaving a
+            // bare shell. The CLI agent subsystem owns the decision of what's
+            // resumable and what to capture.
+            let agent_resume =
+                CLIAgentSessionsModel::as_ref(app).resume_descriptor(self.terminal_view(app).id());
+
             LeafContents::Terminal(TerminalPaneSnapshot {
                 uuid: self.uuid.clone(),
                 cwd: view.pwd_if_local(app),
@@ -587,6 +596,7 @@ impl PaneContent for TerminalPane {
                 active_profile_id,
                 conversation_ids_to_restore,
                 active_conversation_id,
+                agent_resume,
             })
         }
     }

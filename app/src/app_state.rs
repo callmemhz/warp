@@ -201,6 +201,11 @@ pub struct AmbientAgentPaneSnapshot {
     pub task_id: Option<AmbientAgentTaskId>,
 }
 
+/// Info needed to resume a CLI agent that was running in a terminal pane when
+/// Warp exited. Defined and constructed by the CLI agent subsystem; re-exported
+/// here because it's persisted as part of [`TerminalPaneSnapshot`].
+pub use crate::terminal::cli_agent_sessions::AgentResume;
+
 /// Snapshot of the contents of a terminal pane.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TerminalPaneSnapshot {
@@ -216,6 +221,9 @@ pub struct TerminalPaneSnapshot {
     /// The active conversation ID if the agent view was open in fullscreen mode.
     /// When `Some`, the agent view should be restored to fullscreen for this conversation.
     pub active_conversation_id: Option<AIConversationId>,
+    /// When `Some`, a CLI agent (Claude) was running in this pane; on restore
+    /// the pane re-launches it. `None` for ordinary shells (today's behavior).
+    pub agent_resume: Option<AgentResume>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
