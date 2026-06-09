@@ -135,6 +135,16 @@ impl ClaudeSessionsView {
             me.handle_rename_editor_event(event, ctx);
         });
 
+        // Re-render whenever a CLI agent session changes (starts, stops, becomes
+        // active) so the "open in Warp" marker reflects live state. The marker is
+        // computed at render time from `CLIAgentSessionsModel`; without this the
+        // panel would stay stale until the user refocused it — e.g. after a
+        // restart, when the auto-resumed `claude --continue` only reports its
+        // session a few seconds later.
+        ctx.subscribe_to_model(&CLIAgentSessionsModel::handle(ctx), |_, _, _, ctx| {
+            ctx.notify();
+        });
+
         let mut view = Self {
             view_id: ctx.view_id(),
             entries: Vec::new(),
