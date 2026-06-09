@@ -594,6 +594,14 @@ impl LeftPanelView {
         ctx: &mut ViewContext<Self>,
     ) {
         active_view_state::set(self, view, ctx);
+        // Tools that read external state on entry must refresh when restored as
+        // the active tool on startup — `active_view_state::set` alone doesn't
+        // trigger the on-entry reload that the focus/toggle paths do.
+        if matches!(view, ToolPanelView::ClaudeSessions) {
+            self.claude_sessions_view.update(ctx, |v, ctx| {
+                v.on_left_panel_focused(ctx);
+            });
+        }
     }
 
     /// Updates the active pane group ID so we filter events correctly.

@@ -11867,6 +11867,11 @@ impl TerminalView {
                                         me.detect_cli_agent_from_model(&model, ctx)
                                     };
                                     let view_id = me.view_id;
+                                    // Stamp the pane's own cwd so the session is
+                                    // locatable (e.g. by the session navigator)
+                                    // even if the CLI-agent plugin never reports
+                                    // a cwd via OSC.
+                                    let detected_cwd = me.pwd_if_local(ctx);
                                     CLIAgentSessionsModel::handle(ctx).update(
                                         ctx,
                                         |sessions_model, ctx| match detection {
@@ -11883,7 +11888,10 @@ impl TerminalView {
                                                         agent,
                                                         status: CLIAgentSessionStatus::InProgress,
                                                         session_context:
-                                                            CLIAgentSessionContext::default(),
+                                                            CLIAgentSessionContext {
+                                                                cwd: detected_cwd.clone(),
+                                                                ..Default::default()
+                                                            },
                                                         input_state: CLIAgentInputState::Closed,
                                                         should_auto_toggle_input: *AISettings::as_ref(
                                                             ctx,

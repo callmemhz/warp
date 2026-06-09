@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
+use std::time::Duration;
 
 use chrono::{TimeZone, Utc};
 use pathfinder_geometry::vector::Vector2F;
@@ -24,6 +25,7 @@ use warpui::elements::{
     Shrinkable, Stack, Text, UniformList, UniformListState,
 };
 use warpui::platform::Cursor;
+use warpui::r#async::Timer;
 use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::ui_components::text_input::TextInput;
 use warpui::{
@@ -37,7 +39,7 @@ use crate::editor::{
 use crate::menu::{Event as MenuEvent, Menu, MenuItemFields};
 use crate::terminal::cli_agent_sessions::session_index::{self, ClaudeSessionEntry};
 use crate::terminal::cli_agent_sessions::session_names;
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
+use crate::terminal::cli_agent_sessions::{CLIAgentSessionsModel, CLIAgentSessionsModelEvent};
 use crate::util::time_format::format_approx_duration_from_now_utc;
 use crate::workspace::WorkspaceAction;
 
@@ -135,13 +137,21 @@ impl ClaudeSessionsView {
             me.handle_rename_editor_event(event, ctx);
         });
 
-        // Re-render whenever a CLI agent session changes (starts, stops, becomes
-        // active) so the "open in Warp" marker reflects live state. The marker is
-        // computed at render time from `CLIAgentSessionsModel`; without this the
-        // panel would stay stale until the user refocused it — e.g. after a
-        // restart, when the auto-resumed `claude --continue` only reports its
-        // session a few seconds later.
-        ctx.subscribe_to_model(&CLIAgentSessionsModel::handle(ctx), |_, _, _, ctx| {
+        // React to CLI agent session changes. A session starting or ending
+        // changes which sessions exist, so re-read the list; other events
+        // (status changes) only affect the "open in Warp" marker, for which a
+        // re-render suffices. Without this the panel would stay stale until the
+        // user refocused it — e.g. after a restart, when the panel is the
+        // restored-active tool and the auto-resumed sessions only register a few
+        // seconds later.
+        ctx.subscribe_to_model(&CLIAgentSessionsModel::handle(ctx), |me, _, event, ctx| {
+            if matches!(
+                event,
+                CLIAgentSessionsModelEvent::Started { .. }
+                    | CLIAgentSessionsModelEvent::Ended { .. }
+            ) {
+                me.reload();
+            }
             ctx.notify();
         });
 
@@ -195,6 +205,22 @@ impl ClaudeSessionsView {
     pub fn on_left_panel_focused(&mut self, ctx: &mut ViewContext<Self>) {
         self.reload();
         ctx.notify();
+        self.schedule_catch_up_reloads(ctx);
+    }
+
+    /// A resumed `claude` process writes its `~/.claude/sessions/*.json` several
+    /// seconds after launch, with no Warp-side event to trigger a refresh — so
+    /// the immediate reload on panel entry (e.g. a restored-active panel right
+    /// after a restart) misses just-started sessions. Re-read a few times over
+    /// the next ~20s so the list converges on its own instead of the user
+    /// having to switch tabs.
+    fn schedule_catch_up_reloads(&mut self, ctx: &mut ViewContext<Self>) {
+        for delay_ms in [2000_u64, 5000, 10000, 20000] {
+            ctx.spawn(Timer::after(Duration::from_millis(delay_ms)), |me, _, ctx| {
+                me.reload();
+                ctx.notify();
+            });
+        }
     }
 
     fn begin_rename(&mut self, session_id: &str, ctx: &mut ViewContext<Self>) {
