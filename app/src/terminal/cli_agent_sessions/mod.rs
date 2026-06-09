@@ -2,6 +2,8 @@ pub mod event;
 pub mod listener;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod plugin_manager;
+pub mod session_index;
+pub mod session_names;
 
 use std::collections::{HashMap, HashSet};
 
@@ -359,6 +361,30 @@ impl CLIAgentSessionsModel {
 
     pub fn session(&self, terminal_view_id: EntityId) -> Option<&CLIAgentSession> {
         self.sessions.get(&terminal_view_id)
+    }
+
+    /// Finds the terminal view currently hosting the given claude session id,
+    /// if any. Used by the session navigator to mark sessions open in Warp and
+    /// to jump to their pane.
+    pub fn find_view_for_session_id(&self, session_id: &str) -> Option<EntityId> {
+        self.sessions.iter().find_map(|(view_id, session)| {
+            (session.session_context.session_id.as_deref() == Some(session_id)).then_some(*view_id)
+        })
+    }
+
+    /// Finds a terminal view running a claude session in the given directory.
+    /// Used by the navigator as a fallback to `find_view_for_session_id`:
+    /// `claude --continue`/`--resume` spawns a *new* session id but keeps the
+    /// same cwd, so the original conversation can still be located by directory.
+    pub fn find_view_for_cwd(&self, cwd: &str) -> Option<EntityId> {
+        let cwd = cwd.trim_end_matches('/');
+        if cwd.is_empty() {
+            return None;
+        }
+        self.sessions.iter().find_map(|(view_id, session)| {
+            let session_cwd = session.session_context.cwd.as_deref()?.trim_end_matches('/');
+            (session_cwd == cwd).then_some(*view_id)
+        })
     }
 
     /// Builds the descriptor needed to re-launch the CLI agent running in this
