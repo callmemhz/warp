@@ -2,6 +2,7 @@ pub mod event;
 pub mod listener;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod plugin_manager;
+pub mod session_index;
 
 use std::collections::{HashMap, HashSet};
 
@@ -359,6 +360,15 @@ impl CLIAgentSessionsModel {
 
     pub fn session(&self, terminal_view_id: EntityId) -> Option<&CLIAgentSession> {
         self.sessions.get(&terminal_view_id)
+    }
+
+    /// Finds the terminal view currently hosting the given claude session id,
+    /// if any. Used by the session navigator to mark sessions open in Warp and
+    /// to jump to their pane.
+    pub fn find_view_for_session_id(&self, session_id: &str) -> Option<EntityId> {
+        self.sessions.iter().find_map(|(view_id, session)| {
+            (session.session_context.session_id.as_deref() == Some(session_id)).then_some(*view_id)
+        })
     }
 
     /// Builds the descriptor needed to re-launch the CLI agent running in this
