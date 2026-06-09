@@ -1658,6 +1658,12 @@ impl PaneGroup {
                     .filter(|_| startup_directory.is_some())
                     .map(|resume| resume.resume_command());
 
+                if let Some(command) = &agent_resume_command {
+                    log::info!(
+                        "Restoring CLI agent session: running `{command}` in {startup_directory:?}"
+                    );
+                }
+
                 let (terminal_view, terminal_manager) = PaneGroup::create_session(
                     startup_directory,
                     HashMap::new(),
