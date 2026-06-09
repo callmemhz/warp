@@ -237,6 +237,19 @@ fn get_minimum_pane_size(app: &AppContext) -> f32 {
     }
 }
 
+/// Builds the shell command that re-launches a Claude session when a pane is
+/// restored on startup. Mirrors code-cave's `build_claude`: prefer
+/// `--resume <id>` when a session id was captured at runtime, otherwise fall
+/// back to `--continue` (the most recent conversation in the restored cwd).
+/// Always passes `--dangerously-skip-permissions` so the resumed agent runs
+/// without blocking on a permission prompt in the restored pane.
+fn build_claude_resume_command(session_id: Option<&str>) -> String {
+    match session_id {
+        Some(id) => format!("claude --resume {id} --dangerously-skip-permissions"),
+        None => "claude --continue --dangerously-skip-permissions".to_string(),
+    }
+}
+
 /// Resolves a tab config `shell` value (e.g. `"pwsh"` or
 /// `"/opt/homebrew/bin/pwsh"`) into an [`AvailableShell`], using the fallback
 /// order expected by tab configs:
@@ -1635,6 +1648,17 @@ impl PaneGroup {
                             },
                         )
                 };
+                // If a Claude session was running in this pane, re-launch it once
+                // the restored shell is up — instead of leaving a bare shell.
+                // Only do this when the saved cwd still exists
+                // (`startup_directory` is `Some`), so we never resume in the
+                // wrong directory.
+                let claude_resume_command = terminal_snapshot
+                    .agent_resume
+                    .as_ref()
+                    .filter(|_| startup_directory.is_some())
+                    .map(|resume| build_claude_resume_command(resume.session_id.as_deref()));
+
                 let (terminal_view, terminal_manager) = PaneGroup::create_session(
                     startup_directory,
                     HashMap::new(),
@@ -1652,6 +1676,12 @@ impl PaneGroup {
                 );
 
                 let terminal_view_id = terminal_view.id();
+
+                if let Some(command) = claude_resume_command {
+                    terminal_view.update(ctx, |terminal, ctx| {
+                        terminal.set_pending_command_queue(vec![command], ctx);
+                    });
+                }
 
                 let pane_data = TerminalPane::new(
                     uuid.0,
@@ -2142,6 +2172,7 @@ impl PaneGroup {
                             active_profile_id: None,
                             conversation_ids_to_restore: Vec::new(),
                             active_conversation_id: None,
+                            agent_resume: None,
                         })
                     }
                 };

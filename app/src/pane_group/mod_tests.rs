@@ -3320,3 +3320,19 @@ fn decide_remote_child_hydration_empty_token_falls_back() {
         );
     }
 }
+
+#[test]
+fn build_claude_resume_command_prefers_resume_with_id() {
+    assert_eq!(
+        super::build_claude_resume_command(Some("1234abcd-12ab-34cd-56ef-1234567890ab")),
+        "claude --resume 1234abcd-12ab-34cd-56ef-1234567890ab --dangerously-skip-permissions",
+    );
+}
+
+#[test]
+fn build_claude_resume_command_falls_back_to_continue_without_id() {
+    assert_eq!(
+        super::build_claude_resume_command(None),
+        "claude --continue --dangerously-skip-permissions",
+    );
+}

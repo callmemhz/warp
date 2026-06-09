@@ -201,6 +201,18 @@ pub struct AmbientAgentPaneSnapshot {
     pub task_id: Option<AmbientAgentTaskId>,
 }
 
+/// Info needed to resume a CLI agent (currently Claude only) that was running
+/// in a terminal pane when Warp exited. On restore, the pane re-launches the
+/// agent instead of leaving a bare shell. See
+/// `docs/superpowers/specs/2026-06-09-claude-session-restore-design.md`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AgentResume {
+    /// The Claude session id captured at runtime (from the plugin's OSC 777
+    /// `SessionStart`). `None` if no id was seen; the pane falls back to
+    /// `claude --continue` in that case.
+    pub session_id: Option<String>,
+}
+
 /// Snapshot of the contents of a terminal pane.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TerminalPaneSnapshot {
@@ -216,6 +228,9 @@ pub struct TerminalPaneSnapshot {
     /// The active conversation ID if the agent view was open in fullscreen mode.
     /// When `Some`, the agent view should be restored to fullscreen for this conversation.
     pub active_conversation_id: Option<AIConversationId>,
+    /// When `Some`, a CLI agent (Claude) was running in this pane; on restore
+    /// the pane re-launches it. `None` for ordinary shells (today's behavior).
+    pub agent_resume: Option<AgentResume>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
