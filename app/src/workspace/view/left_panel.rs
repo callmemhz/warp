@@ -220,7 +220,7 @@ impl LeftPanelView {
         };
         let warp_drive_view = ctx.add_typed_action_view(DrivePanel::new);
         let conversation_list_view = ctx.add_typed_action_view(ConversationListView::new);
-        let claude_sessions_view = ctx.add_view(ClaudeSessionsView::new);
+        let claude_sessions_view = ctx.add_typed_action_view(ClaudeSessionsView::new);
 
         ctx.subscribe_to_view(&warp_drive_view, |_me, _, event, ctx| {
             ctx.emit(LeftPanelEvent::WarpDrive(event.clone()));
